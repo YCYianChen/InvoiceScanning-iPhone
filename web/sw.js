@@ -1,5 +1,5 @@
 // 離線快取：先回傳快取，同時在背景更新
-const CACHE = "invoice-v2";
+const CACHE = "invoice-v3";
 const FILES = ["./", "index.html", "einvoice.js", "jsQR.js", "app.js", "firebase.js", "firebase-config.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

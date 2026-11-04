@@ -299,6 +299,16 @@
         if (Array.isArray(arr) && arr[0] && (arr[0][nk] || arr[0][ak])) { found = { name: arr[0][nk] || "", addr: arr[0][ak] || "" }; break; }
       } catch (e) { failed = true; }
     }
+    if (!found) {
+      // 備用來源：g0v 公司資料 API（經濟部網站不允許網頁直接讀取時使用）
+      try {
+        const r = await fetch(`https://company.g0v.ronny.tw/api/show/${id}`, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+        const d = (await r.json()).data || {};
+        const name = d["公司名稱"] || d["商業名稱"] || d["名稱"] || "";
+        const addr = d["公司所在地"] || d["地址"] || d["商業所在地"] || "";
+        if (name || addr) { found = { name: typeof name === "string" ? name : "", addr: typeof addr === "string" ? addr : "" }; failed = false; }
+      } catch (e) { failed = true; }
+    }
     btn.disabled = false; btn.textContent = "依統編查詢店家";
     if (found) {
       if (!$("fStore").value.trim()) $("fStore").value = found.name;
