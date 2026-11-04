@@ -8,3 +8,6 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "41359962481",
   appId: "1:41359962481:web:cb3cbc0f9c63e0186386d0",
 };
+
+// 店家查詢中繼站（Cloudflare Worker）網址，例如 "https://store-lookup.xxx.workers.dev"
+window.STORE_PROXY = "";

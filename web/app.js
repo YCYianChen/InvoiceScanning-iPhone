@@ -289,7 +289,15 @@
       ["7E6AFA72-AD6A-46D3-8681-ED77951D912D", `President_No eq ${id}`, "Business_Name", "Business_Address"],
     ];
     let found = null, failed = false;
-    for (const [api, filter, nk, ak] of apis) {
+    if (window.STORE_PROXY) {
+      try {
+        const r = await fetch(`${window.STORE_PROXY.replace(/\/$/, "")}/?id=${id}`, { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined });
+        if (r.status === 404) { btn.disabled = false; btn.textContent = "依統編查詢店家"; if (!silent) toast("查無這個統編的登記資料"); return; }
+        const d = await r.json();
+        if (d.name || d.address) found = { name: d.name || "", addr: d.address || "" };
+      } catch (e) { failed = true; }
+    }
+    for (const [api, filter, nk, ak] of found ? [] : apis) {
       try {
         const url = `https://data.gcis.nat.gov.tw/od/data/api/${api}?$format=json&$filter=${encodeURIComponent(filter)}&$skip=0&$top=1`;
         const r = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
