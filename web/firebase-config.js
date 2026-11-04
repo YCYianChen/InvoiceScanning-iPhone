@@ -10,4 +10,4 @@ window.FIREBASE_CONFIG = {
 };
 
 // 店家查詢中繼站（Cloudflare Worker）網址，例如 "https://store-lookup.xxx.workers.dev"
-window.STORE_PROXY = "";
+window.STORE_PROXY = "https://store-lookup.easonvs777.workers.dev";
