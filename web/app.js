@@ -234,7 +234,19 @@
     renderItems(); updateMap();
     $("deleteArea").hidden = isNew; $("deleteConfirm").hidden = true; $("btnDelete").hidden = false;
     $("formSheet").hidden = false; $("formSheet").scrollTop = 0;
-    if (fromScan && !data.storeName && data.sellerTaxID) lookupStore(true);
+    if (fromScan && !data.storeName && data.sellerTaxID) {
+      // 以前記錄過同一個統編，就沿用你當時填的店名和地址（例如把「浩合商行」改成「鶴茶樓」）
+      const prev = invoices
+        .filter((i) => i.sellerTaxID === data.sellerTaxID && i.storeName)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+      if (prev) {
+        $("fStore").value = prev.storeName;
+        $("fAddr").value = prev.storeAddress || "";
+        updateMap();
+      } else {
+        lookupStore(true);
+      }
+    }
   }
   function closeForm() { $("formSheet").hidden = true; editing = null; }
 

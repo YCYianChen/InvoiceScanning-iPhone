@@ -122,6 +122,13 @@ struct InvoiceListView: View {
         inv.total = Double(p.totalAmount)
         inv.sellerTaxID = p.sellerTaxID
         inv.items = p.items.map { InvoiceItem(name: $0.name, qty: $0.quantity, price: $0.unitPrice) }
+        // 以前記錄過同一個統編，就沿用你當時填的店名和地址
+        if let prev = store.invoices
+            .filter({ $0.sellerTaxID == p.sellerTaxID && !$0.storeName.isEmpty })
+            .max(by: { $0.updatedAt < $1.updatedAt }) {
+            inv.storeName = prev.storeName
+            inv.storeAddress = prev.storeAddress
+        }
         editor = .init(invoice: inv, isNew: true, fromScan: true)
     }
 
