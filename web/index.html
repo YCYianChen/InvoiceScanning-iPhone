@@ -191,6 +191,14 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
 .settings-list { display: grid; gap: 10px; }
 .settings-list .btn { justify-content: flex-start; width: 100%; }
 .small-print { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.chips-label { width: 100%; font-size: 12px; color: var(--muted); padding-left: 4px; }
+.chip {
+  border: 0; border-radius: 10px; padding: 8px 12px; background: var(--surface); box-shadow: 0 0 0 1px var(--line) inset;
+  display: grid; text-align: left; gap: 2px; max-width: 100%; min-width: 0;
+}
+.chip small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.store-hint { color: var(--accent); }
 .auth { display: grid; gap: 20px; padding-block: 48px 24px; max-width: 440px; }
 .auth-head { display: grid; justify-items: center; gap: 8px; text-align: center; }
 .auth-head img { border-radius: 16px; }
@@ -320,6 +328,8 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
         <button type="button" class="btn small" id="btnLookup">依統編查詢店家</button>
         <a class="btn small" id="btnMap" target="_blank" rel="noopener" hidden>在地圖開啟</a>
       </div>
+      <p class="hint store-hint" id="storeHint" hidden></p>
+      <div class="chips" id="storeChips" hidden></div>
       <p class="hint">發票 QR Code 不含地址。查詢結果是經濟部商工登記的「公司登記地址」，不一定是門市地址，請自行修改。</p>
     </div>
     <div class="group">

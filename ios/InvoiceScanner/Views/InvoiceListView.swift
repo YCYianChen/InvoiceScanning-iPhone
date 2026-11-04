@@ -122,12 +122,11 @@ struct InvoiceListView: View {
         inv.total = Double(p.totalAmount)
         inv.sellerTaxID = p.sellerTaxID
         inv.items = p.items.map { InvoiceItem(name: $0.name, qty: $0.quantity, price: $0.unitPrice) }
-        // 以前記錄過同一個統編，就沿用你當時填的店名和地址
-        if let prev = store.invoices
-            .filter({ $0.sellerTaxID == p.sellerTaxID && !$0.storeName.isEmpty })
-            .max(by: { $0.updatedAt < $1.updatedAt }) {
-            inv.storeName = prev.storeName
-            inv.storeAddress = prev.storeAddress
+        // 這個統編以前只對應過一組店名時才自動沿用；多組時讓使用者在表單裡選
+        let combos = InvoiceFormView.storeCombos(for: p.sellerTaxID, in: store.invoices, excluding: nil)
+        if combos.count == 1 {
+            inv.storeName = combos[0].name
+            inv.storeAddress = combos[0].address
         }
         editor = .init(invoice: inv, isNew: true, fromScan: true)
     }

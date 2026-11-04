@@ -234,19 +234,48 @@
     renderItems(); updateMap();
     $("deleteArea").hidden = isNew; $("deleteConfirm").hidden = true; $("btnDelete").hidden = false;
     $("formSheet").hidden = false; $("formSheet").scrollTop = 0;
+    renderStoreChips(isNew ? data.sellerTaxID : "");
     if (fromScan && !data.storeName && data.sellerTaxID) {
-      // 以前記錄過同一個統編，就沿用你當時填的店名和地址（例如把「浩合商行」改成「鶴茶樓」）
-      const prev = invoices
-        .filter((i) => i.sellerTaxID === data.sellerTaxID && i.storeName)
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-      if (prev) {
-        $("fStore").value = prev.storeName;
-        $("fAddr").value = prev.storeAddress || "";
+      const combos = storeCombos(data.sellerTaxID);
+      if (combos.length === 1) {
+        // 這個統編以前只對應過一組店名，直接沿用（仍可修改）
+        $("fStore").value = combos[0].name;
+        $("fAddr").value = combos[0].addr;
         updateMap();
-      } else {
+        $("storeHint").textContent = "已沿用你上次為這個統編填的店名，不對的話可以直接修改";
+        $("storeHint").hidden = false;
+      } else if (combos.length === 0) {
         lookupStore(true);
       }
+      // 多組時不自動帶入，讓你從下方選項挑
     }
+  }
+
+  /** 你以前為同一個統編填過的店名＋地址（去除重複，最近的在前） */
+  function storeCombos(taxID) {
+    if (!taxID) return [];
+    const seen = new Map();
+    invoices
+      .filter((i) => i.sellerTaxID === taxID && i.storeName && (!editing || i.id !== editing.id))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .forEach((i) => {
+        const key = i.storeName + "|" + (i.storeAddress || "");
+        if (!seen.has(key)) seen.set(key, { name: i.storeName, addr: i.storeAddress || "" });
+      });
+    return [...seen.values()].slice(0, 6);
+  }
+  function renderStoreChips(taxID) {
+    const combos = storeCombos(taxID);
+    $("storeHint").hidden = true;
+    $("storeChips").hidden = combos.length < 2;
+    $("storeChips").innerHTML = combos.length < 2 ? "" :
+      `<span class="chips-label">這個統編以前記錄過：</span>` +
+      combos.map((c, i) => `<button type="button" class="chip" data-i="${i}">${esc(c.name)}${c.addr ? `<small>${esc(c.addr)}</small>` : ""}</button>`).join("");
+    $("storeChips").onclick = (e) => {
+      const b = e.target.closest(".chip"); if (!b) return;
+      const c = combos[+b.dataset.i];
+      $("fStore").value = c.name; $("fAddr").value = c.addr; updateMap();
+    };
   }
   function closeForm() { $("formSheet").hidden = true; editing = null; }
 

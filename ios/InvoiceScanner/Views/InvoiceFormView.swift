@@ -35,6 +35,29 @@ struct InvoiceFormView: View {
                         TextField("8 碼", text: $invoice.sellerTaxID)
                             .multilineTextAlignment(.trailing).keyboardType(.numberPad).monospaced()
                     }
+                    if suggestions.count > 1 {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("這個統編以前記錄過：").font(.caption).foregroundStyle(.secondary)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack {
+                                    ForEach(suggestions, id: \.self) { c in
+                                        Button {
+                                            invoice.storeName = c.name
+                                            invoice.storeAddress = c.address
+                                        } label: {
+                                            VStack(alignment: .leading) {
+                                                Text(c.name).font(.subheadline)
+                                                if !c.address.isEmpty {
+                                                    Text(c.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                                }
+                                            }
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     TextField("店家名稱", text: $invoice.storeName)
                     TextField("店家地址", text: $invoice.storeAddress, axis: .vertical)
                     Button {
@@ -97,9 +120,27 @@ struct InvoiceFormView: View {
                 Button("刪除", role: .destructive) { store.delete(invoice); dismiss() }
             }
             .task {
-                if fromScan && invoice.storeName.isEmpty { await lookupStore() }
+                if fromScan && invoice.storeName.isEmpty && suggestions.isEmpty { await lookupStore() }
             }
         }
+    }
+
+    struct StoreCombo: Hashable { let name: String; let address: String }
+
+    /// 你以前為同一個統編填過的店名＋地址（去除重複，最近的在前）
+    static func storeCombos(for taxID: String, in invoices: [Invoice], excluding id: String?) -> [StoreCombo] {
+        guard !taxID.isEmpty else { return [] }
+        var seen = Set<StoreCombo>()
+        return invoices
+            .filter { $0.sellerTaxID == taxID && !$0.storeName.isEmpty && $0.id != id }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map { StoreCombo(name: $0.storeName, address: $0.storeAddress) }
+            .filter { seen.insert($0).inserted }
+            .prefix(6).map { $0 }
+    }
+
+    private var suggestions: [StoreCombo] {
+        isNew ? Self.storeCombos(for: invoice.sellerTaxID, in: store.invoices, excluding: invoice.id) : []
     }
 
     private func lookupStore() async {
