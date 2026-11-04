@@ -191,9 +191,19 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
 .settings-list { display: grid; gap: 10px; }
 .settings-list .btn { justify-content: flex-start; width: 100%; }
 .small-print { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.auth { display: grid; gap: 20px; padding-block: 48px 24px; max-width: 440px; }
+.auth-head { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.auth-head img { border-radius: 16px; }
+.auth-head p { margin: 0; color: var(--muted); }
+.auth-form { display: grid; gap: 12px; }
+.auth-form .field label { flex-basis: 3.5em; }
+.auth-form .field input { text-align: left; }
+.auth-error { margin: 0; color: var(--danger); font-size: 14px; }
+.auth-links { display: flex; justify-content: space-between; }
+.confirm code { font-family: var(--font-mono); font-size: 12px; }
 @media (prefers-reduced-motion: no-preference) {
   .sheet { animation: rise 0.18s ease-out; }
-  @keyframes rise { from { transform: translateY(16px); opacity: 0.6; } }
+  @keyframes rise { from { transform: translateY(16px); } }
 }
 </style>
 </head>
@@ -232,6 +242,34 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
     </button>
   </div>
 </div>
+
+<!-- 登入 -->
+<section class="sheet" id="authSheet" hidden>
+  <div class="wrap auth">
+    <div class="auth-head">
+      <img src="icon-192.png" alt="" width="72" height="72">
+      <h1>發票記帳</h1>
+      <p>登入後，網頁版和 iPhone App 的發票會自動同步。</p>
+    </div>
+    <div class="confirm" id="setupMsg" hidden>
+      <b>尚未設定雲端同步</b>
+      <span class="small-print">請先依 README 建立 Firebase 專案，並把設定填進 <code>web/firebase-config.js</code>。</span>
+    </div>
+    <form id="authForm" class="auth-form">
+      <div class="fields">
+        <div class="field"><label for="authEmail">Email</label><input id="authEmail" type="email" autocomplete="username" inputmode="email" required placeholder="you@example.com"></div>
+        <div class="field"><label for="authPassword">密碼</label><input id="authPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="至少 6 個字元"></div>
+      </div>
+      <p class="auth-error" id="authError" role="alert" hidden></p>
+      <button class="btn primary" id="authSubmit" type="submit">登入</button>
+      <div class="auth-links">
+        <button type="button" class="link" id="authToggle">還沒有帳號？註冊</button>
+        <button type="button" class="link" id="authForgot">忘記密碼</button>
+      </div>
+    </form>
+    <p class="small-print">發票存在你的帳號裡（Google Firebase），傳輸和儲存都有加密。資料庫的安全規則只允許你本人登入後讀寫自己的發票，其他使用者看不到。</p>
+  </div>
+</section>
 
 <!-- 掃描 -->
 <section class="sheet scan" id="scanSheet" hidden>
@@ -321,6 +359,24 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
   </div>
   <div class="wrap">
     <div class="group">
+      <h3>帳號</h3>
+      <div class="fields">
+        <div class="field"><label>登入身分</label><span id="accountEmail" style="margin-left:auto;min-width:0;overflow-wrap:anywhere"></span></div>
+        <div class="field"><label>同步狀態</label><span id="syncState" style="margin-left:auto"></span></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn small" id="btnSignOut">登出</button>
+        <button class="btn small danger" id="btnDeleteAccount">刪除帳號</button>
+      </div>
+      <div class="confirm" id="accountConfirm" hidden>
+        <span>會永久刪除帳號和雲端上所有發票，網頁版和 App 都會一起消失。建議先匯出備份。</span>
+        <div class="row-actions" style="margin:0">
+          <button class="btn small danger" id="btnDeleteAccountYes">永久刪除</button>
+          <button class="btn small" id="btnDeleteAccountNo">取消</button>
+        </div>
+      </div>
+    </div>
+    <div class="group">
       <h3>備份</h3>
       <div class="settings-list">
         <button class="btn" id="btnExportJson">匯出備份檔（JSON）</button>
@@ -333,8 +389,8 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
       <h3>關於資料</h3>
       <p class="small-print" id="storageInfo"></p>
       <p class="small-print">
-        資料只存在這支手機的瀏覽器裡，不會上傳。請用 Safari 的「分享 → 加入主畫面」安裝，
-        從主畫面圖示開啟比較不會被系統清除。建議每個月匯出一次備份檔存到「檔案」或 iCloud Drive。
+        發票存在你的帳號裡，網頁版和 iPhone App 登入同一個帳號就會同步。沒有網路時也能新增，連上網路後會自動上傳。
+        想多一層保險，可以定期匯出備份檔存到「檔案」或 iCloud Drive。
       </p>
     </div>
   </div>
@@ -344,406 +400,8 @@ h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
 
 <script src="jsQR.js"></script>
 <script src="einvoice.js"></script>
-<script>
-(() => {
-  "use strict";
-  const $ = (id) => document.getElementById(id);
-  const KEY = "invoices.v1";
-
-  // ---------- 資料 ----------
-  let invoices = load();
-  function load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { return []; }
-  }
-  function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify(invoices)); }
-    catch (e) { toast("儲存失敗：手機空間不足或瀏覽器禁止儲存"); }
-  }
-  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-
-  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const today = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  };
-  const money = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("zh-TW");
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const weekday = ["日", "一", "二", "三", "四", "五", "六"];
-
-  let toastTimer;
-  function toast(msg) {
-    const t = $("toast"); t.textContent = msg; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2600);
-  }
-
-  // ---------- 清單 ----------
-  let viewMonth = today().slice(0, 7);
-  function shiftMonth(delta) {
-    let [y, m] = viewMonth.split("-").map(Number);
-    m += delta; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
-    viewMonth = `${y}-${String(m).padStart(2, "0")}`; render();
-  }
-  $("prevMonth").onclick = () => shiftMonth(-1);
-  $("nextMonth").onclick = () => shiftMonth(1);
-  $("search").oninput = render;
-
-  function render() {
-    const q = $("search").value.trim().toLowerCase();
-    const [y, m] = viewMonth.split("-");
-    $("monthLabel").textContent = `${y} 年 ${+m} 月`;
-
-    const inMonth = invoices.filter((i) => i.date.startsWith(viewMonth));
-    $("monthSum").textContent = money(inMonth.reduce((s, i) => s + (Number(i.total) || 0), 0));
-    $("monthCount").textContent = `共 ${inMonth.length} 張`;
-
-    // 搜尋時跨月份搜尋全部
-    const shown = (q ? invoices : inMonth).filter((i) => !q || [
-      i.storeName, i.note, i.number, i.storeAddress, ...(i.items || []).map((x) => x.name),
-    ].some((s) => String(s || "").toLowerCase().includes(q)));
-
-    const byDay = {};
-    for (const inv of shown) (byDay[inv.date] ||= []).push(inv);
-    const days = Object.keys(byDay).sort().reverse();
-
-    const list = $("list");
-    if (!days.length) {
-      list.innerHTML = q
-        ? `<div class="empty"><p>找不到「${esc(q)}」</p></div>`
-        : `<div class="empty">
-             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
-             <p>這個月還沒有發票<br>按下方「掃描發票」開始記錄</p>
-             <span class="tag">支援電子發票證明聯上的 QR Code</span>
-           </div>`;
-      return;
-    }
-    list.innerHTML = days.map((d) => {
-      const arr = byDay[d].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      const dt = new Date(d + "T00:00:00");
-      const sub = arr.reduce((s, i) => s + (Number(i.total) || 0), 0);
-      return `<section class="day">
-        <div class="day-head"><span>${dt.getMonth() + 1} 月 ${dt.getDate()} 日（${weekday[dt.getDay()]}）${q ? "・" + dt.getFullYear() : ""}</span><span>小計 <b>${money(sub)}</b></span></div>
-        <div class="card-list">${arr.map((i) => `
-          <button class="inv" data-id="${i.id}">
-            <span class="store">${esc(i.storeName || (i.sellerTaxID ? "統編 " + i.sellerTaxID : "未命名店家"))}</span>
-            <span class="amt">${money(i.total)}</span>
-            ${i.items && i.items.length ? `<span class="items">${esc(i.items.map((x) => x.name).join("、"))}</span>` : ""}
-            ${i.note ? `<span class="note">${esc(i.note)}</span>` : ""}
-          </button>`).join("")}
-        </div></section>`;
-    }).join("");
-  }
-  $("list").onclick = (e) => {
-    const b = e.target.closest(".inv"); if (!b) return;
-    const inv = invoices.find((i) => i.id === b.dataset.id);
-    if (inv) openForm(inv, false);
-  };
-
-  // ---------- 表單 ----------
-  let editing = null; // 正在編輯的現有發票（null = 新增）
-  let draftItems = [];
-  function openForm(data, isNew, fromScan) {
-    editing = isNew ? null : data;
-    $("formTitle").textContent = isNew ? (fromScan ? "確認發票" : "手動新增") : "發票內容";
-    $("fNumber").value = data.number || "";
-    $("fDate").value = data.date || today();
-    $("fTotal").value = data.total ?? "";
-    $("fSeller").value = data.sellerTaxID || "";
-    $("fStore").value = data.storeName || "";
-    $("fAddr").value = data.storeAddress || "";
-    $("fNote").value = data.note || "";
-    draftItems = (data.items || []).map((x) => ({ ...x }));
-    renderItems(); updateMap();
-    $("deleteArea").hidden = isNew; $("deleteConfirm").hidden = true; $("btnDelete").hidden = false;
-    $("formSheet").hidden = false; $("formSheet").scrollTop = 0;
-    if (fromScan && !data.storeName && data.sellerTaxID) lookupStore(true);
-  }
-  function closeForm() { $("formSheet").hidden = true; editing = null; }
-
-  function renderItems() {
-    const box = $("itemsBox");
-    if (!draftItems.length) {
-      box.innerHTML = `<div class="field"><span style="color:var(--muted);font-size:14px">沒有品項資料，可按「新增品項」手動加入</span></div>`;
-    } else {
-      box.innerHTML = draftItems.map((it, i) => `
-        <div class="item-row" data-i="${i}">
-          <input data-k="name" value="${esc(it.name)}" placeholder="品名" aria-label="品名">
-          <input data-k="qty" class="n" type="number" inputmode="decimal" value="${esc(it.qty)}" aria-label="數量">
-          <input data-k="price" class="n" type="number" inputmode="decimal" value="${esc(it.price)}" aria-label="單價">
-          <button type="button" class="x" aria-label="移除品項">×</button>
-        </div>`).join("");
-    }
-    updateItemsSum();
-  }
-  function updateItemsSum() {
-    const s = draftItems.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
-    $("itemsSum").textContent = draftItems.length ? `品項合計 ${money(s)}` : "";
-  }
-  $("itemsBox").oninput = (e) => {
-    const row = e.target.closest(".item-row"); if (!row) return;
-    const it = draftItems[+row.dataset.i], k = e.target.dataset.k;
-    it[k] = k === "name" ? e.target.value : Number(e.target.value);
-    updateItemsSum();
-  };
-  $("itemsBox").onclick = (e) => {
-    if (!e.target.classList.contains("x")) return;
-    draftItems.splice(+e.target.closest(".item-row").dataset.i, 1); renderItems();
-  };
-  $("btnAddItem").onclick = () => {
-    draftItems.push({ name: "", qty: 1, price: 0 }); renderItems();
-    const rows = $("itemsBox").querySelectorAll(".item-row");
-    rows[rows.length - 1]?.querySelector("input").focus();
-  };
-
-  function updateMap() {
-    const a = $("fAddr").value.trim() || $("fStore").value.trim();
-    $("btnMap").hidden = !a;
-    if (a) $("btnMap").href = "https://maps.apple.com/?q=" + encodeURIComponent(a);
-  }
-  $("fAddr").oninput = updateMap; $("fStore").oninput = updateMap;
-
-  async function lookupStore(silent) {
-    const id = $("fSeller").value.trim();
-    if (!/^\d{8}$/.test(id) || id === "00000000") { if (!silent) toast("請先輸入 8 碼統一編號"); return; }
-    const btn = $("btnLookup"); btn.disabled = true; btn.textContent = "查詢中…";
-    const apis = [
-      ["5F64D864-61CB-4D0D-8AD9-492047CC1EA6", `Business_Accounting_NO eq ${id}`, "Company_Name", "Company_Location"],
-      ["7E6AFA72-AD6A-46D3-8681-ED77951D912D", `President_No eq ${id}`, "Business_Name", "Business_Address"],
-    ];
-    let found = null, failed = false;
-    for (const [api, filter, nk, ak] of apis) {
-      try {
-        const url = `https://data.gcis.nat.gov.tw/od/data/api/${api}?$format=json&$filter=${encodeURIComponent(filter)}&$skip=0&$top=1`;
-        const r = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
-        const text = await r.text();
-        if (!text.trim()) continue;
-        const arr = JSON.parse(text);
-        if (Array.isArray(arr) && arr[0] && (arr[0][nk] || arr[0][ak])) { found = { name: arr[0][nk] || "", addr: arr[0][ak] || "" }; break; }
-      } catch (e) { failed = true; }
-    }
-    btn.disabled = false; btn.textContent = "依統編查詢店家";
-    if (found) {
-      if (!$("fStore").value.trim()) $("fStore").value = found.name;
-      if (!$("fAddr").value.trim()) $("fAddr").value = found.addr;
-      updateMap();
-      if (!silent) toast("已帶入登記資料");
-    } else if (!silent) {
-      toast(failed ? "查詢服務連不上，請手動輸入" : "查無這個統編的登記資料");
-    }
-  }
-  $("btnLookup").onclick = () => lookupStore(false);
-
-  $("formCancel").onclick = closeForm;
-  $("form").onsubmit = (e) => { e.preventDefault(); save(); };
-  $("formSave").onclick = save;
-  function save() {
-    const number = $("fNumber").value.trim().toUpperCase();
-    const date = $("fDate").value;
-    if (!date) { toast("請填消費日期"); return; }
-    if (number && invoices.some((i) => i.number === number && i !== editing)) {
-      toast(`發票 ${number} 已經記錄過了`); return;
-    }
-    const data = {
-      number, date,
-      total: Number($("fTotal").value) || 0,
-      sellerTaxID: $("fSeller").value.trim(),
-      storeName: $("fStore").value.trim(),
-      storeAddress: $("fAddr").value.trim(),
-      note: $("fNote").value.trim(),
-      items: draftItems.filter((x) => String(x.name).trim()).map((x) => ({ name: String(x.name).trim(), qty: Number(x.qty) || 0, price: Number(x.price) || 0 })),
-    };
-    if (editing) Object.assign(editing, data, { updatedAt: Date.now() });
-    else invoices.push({ id: uid(), createdAt: Date.now(), ...data });
-    persist();
-    const msg = editing ? "已更新" : "已儲存";
-    viewMonth = date.slice(0, 7); $("search").value = "";
-    closeForm(); render(); toast(msg);
-  }
-  $("btnDelete").onclick = () => { $("deleteConfirm").hidden = false; $("btnDelete").hidden = true; };
-  $("btnDeleteNo").onclick = () => { $("deleteConfirm").hidden = true; $("btnDelete").hidden = false; };
-  $("btnDeleteYes").onclick = () => {
-    invoices = invoices.filter((i) => i !== editing); persist(); closeForm(); render(); toast("已刪除");
-  };
-  $("btnManual").onclick = () => openForm({ date: today() }, true, false);
-
-  // ---------- 掃描 ----------
-  let stream = null, timer = null, codeL = null, codeR = null, bytesL = null, bytesR = null, finished = false;
-  const canvas = $("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-  function decodeText(code) {
-    return code ? code.data : null;
-  }
-  // 編碼參數為 0（Big5）時改用 Big5 重新解碼
-  function big5(bytes) {
-    try { return new TextDecoder("big5").decode(new Uint8Array(bytes)); } catch (e) { return null; }
-  }
-  function currentParse() {
-    if (!codeL) return null;
-    let L = codeL, R = codeR;
-    if (EInvoice.encodingOf(codeL) === "0") {
-      L = (bytesL && big5(bytesL)) || L;
-      R = R && ((bytesR && big5(bytesR)) || R);
-    }
-    return EInvoice.parse(L, R);
-  }
-
-  function accept(code) {
-    const s = decodeText(code); if (!s) return;
-    if (EInvoice.isLeft(s)) {
-      if (s !== codeL) { if (codeL) { codeR = null; bytesR = null; } codeL = s; bytesL = code.binaryData; }
-    } else if (EInvoice.isRight(s)) {
-      codeR = s; bytesR = code.binaryData;
-    }
-  }
-
-  function updateScanUI() {
-    $("markL").classList.toggle("got", !!codeL);
-    $("markR").classList.toggle("got", !!codeR);
-    const p = currentParse();
-    $("scanUse").hidden = !p; $("scanRes").hidden = !p;
-    if (p) {
-      $("scanRes").textContent = `${p.number}　${money(p.total)}　品項 ${p.items.length}/${p.declaredCount}`;
-      $("scanTip").textContent = codeR ? "已讀到兩個 QR Code" : "已讀到左側，請把右側 QR Code 也放進框內";
-      if ((p.declaredCount > 0 && p.items.length >= p.declaredCount) || (codeR && p.declaredCount === 0)) finish();
-    }
-  }
-
-  function scanRegion(sx, sy, sw, sh) {
-    const maxW = 900, scale = Math.min(1, maxW / sw);
-    const w = Math.round(sw * scale), h = Math.round(sh * scale);
-    canvas.width = w; canvas.height = h;
-    ctx.drawImage(scanSource, sx, sy, sw, sh, 0, 0, w, h);
-    const img = ctx.getImageData(0, 0, w, h);
-    return jsQR(img.data, w, h, { inversionAttempts: "dontInvert" });
-  }
-  let scanSource = null;
-  function scanFrame(src, sw, sh) {
-    scanSource = src;
-    // 整張、左半、右半各試一次，才能抓到並排的兩個 QR
-    for (const [x, w] of [[0, sw], [0, sw / 2 + sw * 0.05], [sw / 2 - sw * 0.05, sw / 2 + sw * 0.05]]) {
-      const c = scanRegion(x, 0, w, sh);
-      if (c) accept(c);
-    }
-    updateScanUI();
-  }
-
-  async function openScanner() {
-    codeL = codeR = bytesL = bytesR = null; finished = false;
-    $("scanErr").hidden = true; $("scanTip").textContent = "把發票上的兩個 QR Code 放進框內，保持穩定";
-    $("scanSheet").hidden = false; updateScanUI();
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
-      });
-      const v = $("video"); v.srcObject = stream; await v.play();
-      const tick = () => {
-        if (!stream || finished) return;
-        if (v.readyState >= 2 && v.videoWidth) {
-          // 只掃畫面中間（掃描框附近）的區域，速度較快
-          const vw = v.videoWidth, vh = v.videoHeight;
-          const cw = vw * 0.92, ch = Math.min(vh, cw * 0.7);
-          const sx = (vw - cw) / 2, sy = Math.max(0, vh * 0.42 - ch / 2);
-          scanSource = v;
-          for (const [x, w] of [[sx, cw], [sx, cw * 0.55], [sx + cw * 0.45, cw * 0.55]]) {
-            const c = scanRegion(x, sy, w, Math.min(ch, vh - sy));
-            if (c) accept(c);
-          }
-          updateScanUI();
-        }
-        timer = setTimeout(tick, 120);
-      };
-      tick();
-    } catch (e) {
-      $("scanErr").hidden = false;
-      $("scanErr").textContent = location.protocol !== "https:" && location.hostname !== "localhost"
-        ? "相機只能在 https 網址下使用。請用部署好的網址開啟。"
-        : "無法開啟相機。請到「設定 → Safari → 相機」改成「允許」，或改用下方「用拍照辨識」。";
-    }
-  }
-  function stopScanner() {
-    clearTimeout(timer); timer = null;
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    stream = null; $("video").srcObject = null; $("scanSheet").hidden = true;
-  }
-  function finish() {
-    if (finished) return;
-    const p = currentParse(); if (!p) return;
-    finished = true;
-    if (navigator.vibrate) navigator.vibrate(30);
-    stopScanner();
-    const dup = invoices.find((i) => i.number === p.number);
-    if (dup) { toast(`發票 ${p.number} 已經記錄過了`); openForm(dup, false); return; }
-    openForm({ number: p.number, date: p.date, total: p.total, sellerTaxID: p.sellerTaxID, items: p.items }, true, true);
-  }
-  $("btnScan").onclick = openScanner;
-  $("scanCancel").onclick = stopScanner;
-  $("scanUse").onclick = finish;
-  $("photoInput").onchange = async (e) => {
-    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-    try {
-      const bmp = await createImageBitmap(f);
-      scanFrame(bmp, bmp.width, bmp.height);
-      if (!codeL) toast("照片裡找不到發票 QR Code，請靠近一點、避免反光再拍一次");
-      else if (!finished && !codeR) toast("只讀到左側 QR Code，可直接按「使用目前結果」");
-    } catch (err) { toast("無法讀取照片"); }
-  };
-
-  // ---------- 設定與備份 ----------
-  $("btnSettings").onclick = async () => {
-    $("settingsSheet").hidden = false;
-    let info = `目前共 ${invoices.length} 張發票。`;
-    try {
-      if (navigator.storage?.persisted && await navigator.storage.persisted()) info += "瀏覽器已允許長期保存資料。";
-    } catch (e) {}
-    $("storageInfo").textContent = info;
-  };
-  $("settingsClose").onclick = () => ($("settingsSheet").hidden = true);
-
-  async function shareOrDownload(filename, text, type) {
-    const file = new File([text], filename, { type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: filename }); return; }
-      catch (e) { if (e.name === "AbortError") return; }
-    }
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(file); a.download = filename; document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  }
-  const stamp = () => today().replace(/-/g, "");
-  $("btnExportJson").onclick = () =>
-    shareOrDownload(`發票備份-${stamp()}.json`, JSON.stringify({ app: "invoice-scanner", version: 1, invoices }, null, 2), "application/json");
-  $("btnExportCsv").onclick = () => {
-    const q = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const rows = [["日期", "發票號碼", "金額", "店家", "地址", "統編", "品項", "備註"].map(q).join(",")];
-    for (const i of [...invoices].sort((a, b) => a.date.localeCompare(b.date))) {
-      rows.push([i.date, i.number, i.total, i.storeName, i.storeAddress, i.sellerTaxID,
-        (i.items || []).map((x) => `${x.name}×${x.qty}@${x.price}`).join("；"), i.note].map(q).join(","));
-    }
-    shareOrDownload(`發票-${stamp()}.csv`, "﻿" + rows.join("\r\n"), "text/csv");
-  };
-  $("importInput").onchange = async (e) => {
-    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-    try {
-      const data = JSON.parse(await f.text());
-      const list = Array.isArray(data) ? data : data.invoices;
-      if (!Array.isArray(list)) throw new Error();
-      let added = 0;
-      for (const inv of list) {
-        if (!inv || !inv.date) continue;
-        if (inv.number && invoices.some((i) => i.number === inv.number)) continue;
-        if (inv.id && invoices.some((i) => i.id === inv.id)) continue;
-        invoices.push({ id: inv.id || uid(), createdAt: inv.createdAt || Date.now(), ...inv });
-        added++;
-      }
-      persist(); render(); $("settingsSheet").hidden = true;
-      toast(`已還原 ${added} 張（重複的已略過）`);
-    } catch (err) { toast("這不是有效的備份檔"); }
-  };
-
-  render();
-  if ("serviceWorker" in navigator && location.protocol === "https:") {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
-  }
-})();
-</script>
+<script src="firebase.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

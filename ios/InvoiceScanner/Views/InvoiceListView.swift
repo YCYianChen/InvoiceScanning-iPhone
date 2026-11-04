@@ -1,81 +1,140 @@
 import SwiftUI
-import SwiftData
 
 struct InvoiceListView: View {
-    @Environment(\.modelContext) private var context
-    @Query(sort: \Invoice.date, order: .reverse) private var invoices: [Invoice]
+    @EnvironmentObject private var store: InvoiceStore
 
     @State private var showScanner = false
-    @State private var draft: InvoiceDraft?
+    @State private var showSettings = false
+    @State private var editor: EditorRequest?
     @State private var searchText = ""
+    @State private var month = Calendar.current.dateInterval(of: .month, for: .now)!.start
 
-    private var filtered: [Invoice] {
-        guard !searchText.isEmpty else { return invoices }
-        return invoices.filter { inv in
-            inv.storeName.localizedCaseInsensitiveContains(searchText)
-            || inv.note.localizedCaseInsensitiveContains(searchText)
-            || inv.number.localizedCaseInsensitiveContains(searchText)
-            || inv.items.contains { $0.name.localizedCaseInsensitiveContains(searchText) }
+    struct EditorRequest: Identifiable {
+        let id = UUID()
+        var invoice: Invoice
+        var isNew: Bool
+        var fromScan: Bool
+    }
+
+    private var monthKey: String { String(Invoice.dayString(from: month).prefix(7)) }
+    private var inMonth: [Invoice] { store.invoices.filter { $0.date.hasPrefix(monthKey) } }
+
+    private var shown: [Invoice] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return inMonth }
+        return store.invoices.filter { inv in
+            ([inv.storeName, inv.note, inv.number, inv.storeAddress] + inv.items.map(\.name))
+                .contains { $0.localizedCaseInsensitiveContains(q) }
         }
     }
 
-    /// 依消費日期（以天為單位）分組
-    private var grouped: [(day: Date, invoices: [Invoice])] {
-        let cal = Calendar.current
-        let dict = Dictionary(grouping: filtered) { cal.startOfDay(for: $0.date) }
-        return dict.keys.sorted(by: >).map { ($0, dict[$0]!) }
+    /// 依消費日期分組
+    private var grouped: [(day: String, invoices: [Invoice])] {
+        let dict = Dictionary(grouping: shown, by: \.date)
+        return dict.keys.sorted(by: >).map { day in
+            (day, dict[day]!.sorted { $0.createdAt > $1.createdAt })
+        }
     }
 
     var body: some View {
         NavigationStack {
             List {
+                if searchText.isEmpty {
+                    Section {
+                        HStack {
+                            Button { shiftMonth(-1) } label: { Image(systemName: "chevron.left") }
+                            Text(month, format: .dateTime.year().month(.wide)).font(.headline)
+                            Button { shiftMonth(1) } label: { Image(systemName: "chevron.right") }
+                            Spacer()
+                            VStack(alignment: .trailing) {
+                                Text(inMonth.reduce(0) { $0 + $1.total }.money)
+                                    .font(.title2.bold().monospacedDigit())
+                                Text("共 \(inMonth.count) 張").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
                 ForEach(grouped, id: \.day) { group in
                     Section {
                         ForEach(group.invoices) { inv in
-                            NavigationLink(value: inv) { InvoiceRow(invoice: inv) }
+                            Button {
+                                editor = .init(invoice: inv, isNew: false, fromScan: false)
+                            } label: { InvoiceRow(invoice: inv) }
+                            .foregroundStyle(.primary)
                         }
                         .onDelete { offsets in
-                            offsets.map { group.invoices[$0] }.forEach(context.delete)
+                            offsets.map { group.invoices[$0] }.forEach(store.delete)
                         }
                     } header: {
                         HStack {
-                            Text(group.day, format: .dateTime.year().month().day().weekday())
+                            Text(dayTitle(group.day))
                             Spacer()
-                            Text("小計 $\(group.invoices.reduce(0) { $0 + $1.totalAmount })")
+                            Text("小計 \(group.invoices.reduce(0) { $0 + $1.total }.money)")
                         }
                     }
                 }
             }
             .overlay {
-                if invoices.isEmpty {
-                    ContentUnavailableView("尚無發票",
+                if shown.isEmpty {
+                    ContentUnavailableView(searchText.isEmpty ? "這個月還沒有發票" : "找不到「\(searchText)」",
                         systemImage: "doc.text.viewfinder",
-                        description: Text("點右上角相機圖示掃描電子發票"))
+                        description: Text(searchText.isEmpty ? "點右上角相機圖示掃描電子發票" : ""))
                 }
             }
             .searchable(text: $searchText, prompt: "搜尋店家、品項、備註")
-            .navigationTitle("發票記錄")
-            .navigationDestination(for: Invoice.self) { InvoiceDetailView(invoice: $0) }
+            .navigationTitle("發票記帳")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showScanner = true } label: { Image(systemName: "camera.viewfinder") }
-                }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { draft = InvoiceDraft() } label: { Image(systemName: "square.and.pencil") }
+                    Button { showSettings = true } label: { Image(systemName: "person.crop.circle") }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        editor = .init(invoice: Invoice(), isNew: true, fromScan: false)
+                    } label: { Image(systemName: "square.and.pencil") }
+                    Button { showScanner = true } label: { Image(systemName: "camera.viewfinder") }
                 }
             }
             .fullScreenCover(isPresented: $showScanner) {
                 ScannerView { parsed in
-                    // 等掃描畫面關閉後再開啟確認表單
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        draft = InvoiceDraft(parsed: parsed)
-                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openScanned(parsed) }
                 }
             }
-            .sheet(item: $draft) { d in
-                InvoiceFormView(draft: d)
+            .sheet(item: $editor) { req in
+                InvoiceFormView(invoice: req.invoice, isNew: req.isNew, fromScan: req.fromScan)
             }
+            .sheet(isPresented: $showSettings) { SettingsView() }
+            .alert("發生錯誤", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
+                Button("好") {}
+            } message: { Text(store.lastError ?? "") }
         }
+    }
+
+    private func openScanned(_ p: ParsedInvoice) {
+        if let dup = store.existing(number: p.number) {
+            editor = .init(invoice: dup, isNew: false, fromScan: false)
+            return
+        }
+        var inv = Invoice()
+        inv.number = p.number
+        inv.dateValue = p.date
+        inv.total = Double(p.totalAmount)
+        inv.sellerTaxID = p.sellerTaxID
+        inv.items = p.items.map { InvoiceItem(name: $0.name, qty: $0.quantity, price: $0.unitPrice) }
+        editor = .init(invoice: inv, isNew: true, fromScan: true)
+    }
+
+    private func shiftMonth(_ delta: Int) {
+        month = Calendar.current.date(byAdding: .month, value: delta, to: month) ?? month
+    }
+
+    private func dayTitle(_ day: String) -> String {
+        let d = Invoice.date(fromDay: day)
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_Hant_TW")
+        f.dateFormat = searchText.isEmpty ? "M 月 d 日（EEEEE）" : "yyyy 年 M 月 d 日（EEEEE）"
+        return f.string(from: d)
     }
 }
 
@@ -84,13 +143,12 @@ private struct InvoiceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(invoice.storeName.isEmpty ? "統編 \(invoice.sellerTaxID)" : invoice.storeName)
-                    .font(.headline).lineLimit(1)
+                Text(invoice.displayName).font(.headline).lineLimit(1)
                 Spacer()
-                Text("$\(invoice.totalAmount)").font(.headline.monospacedDigit())
+                Text(invoice.total.money).font(.headline.monospacedDigit())
             }
             if !invoice.items.isEmpty {
-                Text(invoice.sortedItems.map(\.name).joined(separator: "、"))
+                Text(invoice.items.map(\.name).joined(separator: "、"))
                     .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             if !invoice.note.isEmpty {

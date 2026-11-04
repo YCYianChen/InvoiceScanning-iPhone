@@ -1,56 +1,60 @@
 import Foundation
-import SwiftData
+import FirebaseFirestore
 
-@Model
-final class Invoice {
-    /// 發票號碼，例如 AB12345678
-    @Attribute(.unique) var number: String
-    /// 消費日期
-    var date: Date
-    /// 總金額（含稅）
-    var totalAmount: Int
-    /// 賣方統一編號
-    var sellerTaxID: String
-    /// 店家名稱（查詢或手動輸入）
-    var storeName: String
-    /// 店家地址（查詢或手動輸入）
-    var storeAddress: String
-    /// 使用者備註
-    var note: String
-    var createdAt: Date
-
-    @Relationship(deleteRule: .cascade, inverse: \InvoiceItem.invoice)
+/// 與網頁版共用的資料格式：Firestore 的 users/{uid}/invoices/{id}
+struct Invoice: Codable, Identifiable, Hashable {
+    @DocumentID var id: String?
+    var number: String = ""
+    /// 消費日期，格式 yyyy-MM-dd
+    var date: String = Invoice.dayString(from: .now)
+    var total: Double = 0
+    var sellerTaxID: String = ""
+    var storeName: String = ""
+    var storeAddress: String = ""
+    var note: String = ""
     var items: [InvoiceItem] = []
+    /// 毫秒時間戳記（與網頁版的 Date.now() 一致）
+    var createdAt: Double = Date.now.timeIntervalSince1970 * 1000
+    var updatedAt: Double = Date.now.timeIntervalSince1970 * 1000
 
-    init(number: String, date: Date, totalAmount: Int, sellerTaxID: String,
-         storeName: String = "", storeAddress: String = "", note: String = "") {
-        self.number = number
-        self.date = date
-        self.totalAmount = totalAmount
-        self.sellerTaxID = sellerTaxID
-        self.storeName = storeName
-        self.storeAddress = storeAddress
-        self.note = note
-        self.createdAt = .now
+    init() {}
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+    static func dayString(from date: Date) -> String { dayFormatter.string(from: date) }
+    static func date(fromDay day: String) -> Date { dayFormatter.date(from: day) ?? .now }
+
+    var dateValue: Date {
+        get { Self.dayFormatter.date(from: date) ?? .now }
+        set { date = Self.dayString(from: newValue) }
     }
 
-    var sortedItems: [InvoiceItem] { items.sorted { $0.order < $1.order } }
+    var displayName: String {
+        if !storeName.isEmpty { return storeName }
+        if !sellerTaxID.isEmpty { return "統編 \(sellerTaxID)" }
+        return "未命名店家"
+    }
 }
 
-@Model
-final class InvoiceItem {
+struct InvoiceItem: Codable, Hashable, Identifiable {
+    var id = UUID()
     var name: String
-    var quantity: Double
-    var unitPrice: Double
-    var order: Int
-    var invoice: Invoice?
+    var qty: Double
+    var price: Double
 
-    init(name: String, quantity: Double, unitPrice: Double, order: Int) {
-        self.name = name
-        self.quantity = quantity
-        self.unitPrice = unitPrice
-        self.order = order
+    enum CodingKeys: String, CodingKey { case name, qty, price }
+
+    init(name: String, qty: Double, price: Double) {
+        self.name = name; self.qty = qty; self.price = price
     }
+    var subtotal: Double { qty * price }
+}
 
-    var subtotal: Double { quantity * unitPrice }
+extension Double {
+    var money: String { "$" + Int(self.rounded()).formatted() }
 }

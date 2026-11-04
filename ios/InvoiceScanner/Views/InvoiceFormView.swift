@@ -1,117 +1,103 @@
 import SwiftUI
-import SwiftData
 
-/// 新增發票前的暫存資料（掃描結果或手動輸入）
-struct InvoiceDraft: Identifiable {
-    struct Item: Identifiable {
-        let id = UUID()
-        var name: String
-        var quantity: Double
-        var unitPrice: Double
-    }
-
-    let id = UUID()
-    var number = ""
-    var date = Date()
-    var totalAmount = 0
-    var sellerTaxID = ""
-    var storeName = ""
-    var storeAddress = ""
-    var note = ""
-    var items: [Item] = []
-    var fromScan = false
-
-    init() {}
-
-    init(parsed p: ParsedInvoice) {
-        number = p.number
-        date = p.date
-        totalAmount = p.totalAmount
-        sellerTaxID = p.sellerTaxID
-        items = p.items.map { Item(name: $0.name, quantity: $0.quantity, unitPrice: $0.unitPrice) }
-        fromScan = true
-    }
-}
-
+/// 新增或編輯發票（掃描結果、手動新增、點清單開啟都用這個畫面）
 struct InvoiceFormView: View {
-    @Environment(\.modelContext) private var context
+    @EnvironmentObject private var store: InvoiceStore
     @Environment(\.dismiss) private var dismiss
-    @State var draft: InvoiceDraft
+    @Environment(\.openURL) private var openURL
+
+    @State var invoice: Invoice
+    let isNew: Bool
+    let fromScan: Bool
+
     @State private var lookingUp = false
     @State private var errorMessage: String?
+    @State private var confirmDelete = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("基本資訊") {
                     LabeledContent("發票號碼") {
-                        TextField("AB12345678", text: $draft.number)
-                            .multilineTextAlignment(.trailing)
+                        TextField("AB12345678", text: $invoice.number)
+                            .multilineTextAlignment(.trailing).monospaced()
                             .textInputAutocapitalization(.characters)
                     }
-                    DatePicker("消費日期", selection: $draft.date, displayedComponents: .date)
+                    DatePicker("消費日期", selection: $invoice.dateValue, displayedComponents: .date)
                     LabeledContent("金額") {
-                        TextField("0", value: $draft.totalAmount, format: .number)
+                        TextField("0", value: $invoice.total, format: .number)
                             .multilineTextAlignment(.trailing).keyboardType(.numberPad)
                     }
                 }
 
                 Section {
                     LabeledContent("賣方統編") {
-                        TextField("8 碼", text: $draft.sellerTaxID)
-                            .multilineTextAlignment(.trailing).keyboardType(.numberPad)
+                        TextField("8 碼", text: $invoice.sellerTaxID)
+                            .multilineTextAlignment(.trailing).keyboardType(.numberPad).monospaced()
                     }
-                    TextField("店家名稱", text: $draft.storeName)
-                    TextField("店家地址", text: $draft.storeAddress, axis: .vertical)
+                    TextField("店家名稱", text: $invoice.storeName)
+                    TextField("店家地址", text: $invoice.storeAddress, axis: .vertical)
                     Button {
                         Task { await lookupStore() }
                     } label: {
                         HStack {
-                            Text("依統編查詢店家資料")
+                            Text("依統編查詢店家")
                             if lookingUp { Spacer(); ProgressView() }
                         }
                     }
-                    .disabled(lookingUp || draft.sellerTaxID.count != 8)
+                    .disabled(lookingUp || invoice.sellerTaxID.count != 8)
+                    if !invoice.storeAddress.isEmpty || !invoice.storeName.isEmpty {
+                        Button { openInMaps() } label: { Label("在地圖開啟", systemImage: "map") }
+                    }
                 } header: { Text("店家") } footer: {
-                    Text("發票 QR Code 不含店家地址，會以統一編號向經濟部商工登記資料查詢（顯示的是登記地址，不一定是門市地址），可自行修改。")
+                    Text("發票 QR Code 不含地址。查詢結果是經濟部商工登記的「公司登記地址」，不一定是門市地址，請自行修改。")
                 }
 
-                Section("品項") {
-                    ForEach($draft.items) { $item in
+                Section {
+                    ForEach($invoice.items) { $item in
                         VStack(alignment: .leading) {
                             TextField("品名", text: $item.name)
                             HStack {
-                                TextField("數量", value: $item.quantity, format: .number)
-                                    .keyboardType(.decimalPad)
+                                TextField("數量", value: $item.qty, format: .number).keyboardType(.decimalPad)
                                 Text("×")
-                                TextField("單價", value: $item.unitPrice, format: .number)
-                                    .keyboardType(.decimalPad)
+                                TextField("單價", value: $item.price, format: .number).keyboardType(.decimalPad)
                             }
                             .font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
-                    .onDelete { draft.items.remove(atOffsets: $0) }
-                    Button("新增品項") {
-                        draft.items.append(.init(name: "", quantity: 1, unitPrice: 0))
+                    .onDelete { invoice.items.remove(atOffsets: $0) }
+                    Button("新增品項") { invoice.items.append(.init(name: "", qty: 1, price: 0)) }
+                } header: { Text("品項") } footer: {
+                    if !invoice.items.isEmpty {
+                        Text("品項合計 \(invoice.items.reduce(0) { $0 + $1.subtotal }.money)")
                     }
                 }
 
                 Section("備註") {
-                    TextField("例如：公司報帳、和朋友聚餐…", text: $draft.note, axis: .vertical)
+                    TextField("例如：公司報帳、和朋友聚餐…", text: $invoice.note, axis: .vertical)
                         .lineLimit(3...8)
                 }
+
+                if !isNew {
+                    Section {
+                        Button("刪除這張發票", role: .destructive) { confirmDelete = true }
+                    }
+                }
             }
-            .navigationTitle(draft.fromScan ? "確認發票" : "手動新增")
+            .navigationTitle(isNew ? (fromScan ? "確認發票" : "手動新增") : "發票內容")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("儲存") { save() } }
             }
-            .alert("無法儲存", isPresented: .constant(errorMessage != nil)) {
-                Button("好") { errorMessage = nil }
+            .alert("無法儲存", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("好") {}
             } message: { Text(errorMessage ?? "") }
+            .confirmationDialog("確定刪除？刪除後無法復原，網頁版也會一起刪除。", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("刪除", role: .destructive) { store.delete(invoice); dismiss() }
+            }
             .task {
-                if draft.fromScan && draft.storeName.isEmpty { await lookupStore() }
+                if fromScan && invoice.storeName.isEmpty { await lookupStore() }
             }
         }
     }
@@ -119,32 +105,27 @@ struct InvoiceFormView: View {
     private func lookupStore() async {
         lookingUp = true
         defer { lookingUp = false }
-        if let info = await StoreLookupService.lookup(taxID: draft.sellerTaxID) {
-            if draft.storeName.isEmpty { draft.storeName = info.name }
-            if draft.storeAddress.isEmpty { draft.storeAddress = info.address }
+        if let info = await StoreLookupService.lookup(taxID: invoice.sellerTaxID) {
+            if invoice.storeName.isEmpty { invoice.storeName = info.name }
+            if invoice.storeAddress.isEmpty { invoice.storeAddress = info.address }
         }
     }
 
+    private func openInMaps() {
+        let q = invoice.storeAddress.isEmpty ? invoice.storeName : invoice.storeAddress
+        var comps = URLComponents(string: "https://maps.apple.com/")!
+        comps.queryItems = [.init(name: "q", value: q)]
+        if let url = comps.url { openURL(url) }
+    }
+
     private func save() {
-        let number = draft.number.trimmingCharacters(in: .whitespaces).uppercased()
-        if !number.isEmpty {
-            let existing = try? context.fetch(FetchDescriptor<Invoice>(predicate: #Predicate { $0.number == number }))
-            if let existing, !existing.isEmpty {
-                errorMessage = "發票 \(number) 已經記錄過了"
-                return
-            }
+        invoice.number = invoice.number.trimmingCharacters(in: .whitespaces).uppercased()
+        if store.isDuplicate(number: invoice.number, excluding: invoice.id) {
+            errorMessage = "發票 \(invoice.number) 已經記錄過了"
+            return
         }
-        let invoice = Invoice(
-            number: number.isEmpty ? "MANUAL-\(UUID().uuidString.prefix(8))" : number,
-            date: draft.date, totalAmount: draft.totalAmount,
-            sellerTaxID: draft.sellerTaxID, storeName: draft.storeName,
-            storeAddress: draft.storeAddress, note: draft.note)
-        context.insert(invoice)
-        for (i, item) in draft.items.enumerated() where !item.name.isEmpty {
-            let it = InvoiceItem(name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, order: i)
-            it.invoice = invoice
-            context.insert(it)
-        }
+        invoice.items.removeAll { $0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        store.save(invoice)
         dismiss()
     }
 }

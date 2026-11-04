@@ -1,0 +1,35 @@
+rules_version = '2';
+
+// 每位使用者只能讀寫 users/{自己的 uid}/invoices 底下的資料，其他人（包含未登入者）一律拒絕。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid}/invoices/{invoiceId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isValidInvoice(request.resource.data);
+    }
+
+    // 其他路徑全部拒絕
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isValidInvoice(d) {
+      return d.keys().hasOnly(['number', 'date', 'total', 'sellerTaxID', 'storeName',
+                               'storeAddress', 'note', 'items', 'createdAt', 'updatedAt'])
+        && d.number is string && d.number.size() <= 20
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.total is number
+        && d.sellerTaxID is string && d.sellerTaxID.size() <= 20
+        && d.storeName is string && d.storeName.size() <= 200
+        && d.storeAddress is string && d.storeAddress.size() <= 300
+        && d.note is string && d.note.size() <= 2000
+        && d.items is list && d.items.size() <= 300
+        && d.createdAt is number && d.updatedAt is number;
+    }
+  }
+}
