@@ -1,0 +1,57 @@
+# 用 GitHub 提供的雲端 Mac 編譯未簽名的 .ipa，給 SideStore 安裝（SideStore 會用你的 Apple ID 簽名）
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/build-ipa.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project InvoiceScanner.xcodeproj \
+            -target InvoiceScanner \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/InvoiceScanner.app Payload/
+          zip -qr InvoiceScanner.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InvoiceScanner-ipa
+          path: ios/InvoiceScanner.ipa
+
+      # 發佈到 Releases 的 "latest"，iPhone 用 Safari 就能直接下載 .ipa
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 最新版 (${{ github.sha }})
+          make_latest: true
+          files: ios/InvoiceScanner.ipa

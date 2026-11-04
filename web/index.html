@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>發票記帳</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="發票記帳">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f2f4f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1312" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+/* 版面：單欄手機 App；頂部月份摘要，下方依日期分組的發票卡，底部固定掃描按鈕 */
+:root {
+  --bg: #f2f4f3;
+  --surface: #ffffff;
+  --fg: #18211f;
+  --muted: #67736f;
+  --line: #dfe5e2;
+  --accent: #0b7a6c;
+  --accent-ink: #ffffff;
+  --note: #a65a12;
+  --danger: #b4322a;
+  --ok: #1f8a4c;
+  --font-body: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: ui-rounded, -apple-system, "SF Pro Rounded", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1312; --surface: #171f1d; --fg: #e3ebe8; --muted: #8e9b97; --line: #26312e;
+    --accent: #38bfa9; --accent-ink: #062320; --note: #e3a25e; --danger: #f07a70; --ok: #5fd08f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 16px/1.45 var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+.wrap {
+  max-width: 640px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+header.top { padding-block: 18px 8px; display: grid; gap: 14px; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; }
+.icon-btn {
+  border: 0; background: var(--surface); border-radius: 999px; width: 40px; height: 40px;
+  display: grid; place-items: center; color: var(--fg); box-shadow: 0 0 0 1px var(--line) inset;
+}
+.icon-btn svg { width: 20px; height: 20px; }
+
+.summary { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.summary .month-nav { display: flex; align-items: center; gap: 4px; }
+.summary .month-nav button { border: 0; background: none; padding: 4px 8px; color: var(--muted); font-size: 18px; }
+.summary .month { font-weight: 600; }
+.summary .sum { margin-left: auto; font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; }
+.summary .count { color: var(--muted); font-size: 13px; width: 100%; text-align: right; margin-top: -8px; }
+
+.search {
+  width: 100%; border: 0; border-radius: 12px; padding: 10px 14px; background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line) inset;
+}
+
+.day { margin-top: 18px; }
+.day-head {
+  display: flex; justify-content: space-between; color: var(--muted); font-size: 13px;
+  padding: 0 4px 6px; letter-spacing: 0.04em;
+}
+.day-head b { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 600; }
+.card-list { background: var(--surface); border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--line) inset; }
+.inv {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; width: 100%; text-align: left;
+  padding: 12px 14px; border: 0; background: none; border-top: 1px solid var(--line);
+}
+.inv:first-child { border-top: 0; }
+.inv .store { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv .amt { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+.inv .items, .inv .note { grid-column: 1 / -1; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv .items { color: var(--muted); }
+.inv .note { color: var(--note); }
+.inv .note::before { content: "備註　"; font-weight: 600; }
+
+.empty { text-align: center; color: var(--muted); padding: 48px 16px; display: grid; gap: 8px; justify-items: center; }
+.empty svg { width: 56px; height: 56px; opacity: 0.6; }
+.empty .tag { font-size: 12px; border: 1px dashed var(--line); padding: 2px 8px; border-radius: 6px; }
+
+.dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to top, var(--bg) 60%, transparent);
+}
+.dock .inner { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; }
+.btn {
+  border: 0; border-radius: 14px; padding: 14px 18px; font-weight: 600; display: inline-flex;
+  align-items: center; justify-content: center; gap: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--line) inset;
+}
+.btn svg { width: 20px; height: 20px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); box-shadow: none; flex: 1; }
+.btn.danger { color: var(--danger); }
+.btn.small { padding: 8px 12px; font-size: 14px; border-radius: 10px; }
+
+/* 全螢幕面板（掃描、表單、設定） */
+.sheet {
+  position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow-y: auto;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.sheet-bar {
+  position: sticky; top: 0; z-index: 2; background: var(--bg);
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding-block: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.sheet-bar h2 { font-size: 17px; margin: 0; text-align: center; }
+.sheet-bar .l { justify-self: start; } .sheet-bar .r { justify-self: end; }
+.link { border: 0; background: none; color: var(--accent); font-weight: 600; padding: 6px 2px; }
+
+.group { margin-top: 20px; }
+.group > h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 6px 4px; letter-spacing: 0.04em; }
+.group .hint { font-size: 12px; color: var(--muted); margin: 6px 4px 0; }
+.fields { background: var(--surface); border-radius: 14px; box-shadow: 0 0 0 1px var(--line) inset; overflow: hidden; }
+.field { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); min-height: 48px; }
+.field:first-child { border-top: 0; }
+.field label { flex: 0 0 5.5em; color: var(--muted); font-size: 15px; }
+.field input, .field textarea {
+  flex: 1; min-width: 0; border: 0; background: none; padding: 4px 0; text-align: right; outline: none;
+}
+.field textarea { text-align: left; resize: vertical; min-height: 4.5em; }
+.field.block { display: block; }
+.field.block textarea { width: 100%; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); letter-spacing: 0.04em; }
+
+.item-row { display: grid; grid-template-columns: 1fr 4.2em 5em 32px; gap: 8px; align-items: center; padding: 8px 10px 8px 14px; border-top: 1px solid var(--line); }
+.item-row:first-child { border-top: 0; }
+.item-row input { border: 0; background: none; min-width: 0; width: 100%; outline: none; padding: 4px 0; }
+.item-row input.n { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.item-row .x { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; }
+.items-head { display: grid; grid-template-columns: 1fr 4.2em 5em 32px; gap: 8px; padding: 0 10px 4px 18px; font-size: 12px; color: var(--muted); }
+.items-head span:nth-child(2), .items-head span:nth-child(3) { text-align: right; }
+.items-foot { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px 0; font-size: 13px; color: var(--muted); }
+
+.row-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.confirm { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 1px var(--danger) inset; display: grid; gap: 10px; }
+
+/* 掃描畫面 */
+.scan { background: #000; color: #fff; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.scan video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scan .frame {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  width: min(86vw, 520px); aspect-ratio: 2 / 1; border-radius: 16px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); display: grid; grid-template-columns: 1fr 1fr;
+}
+.scan .frame div { border: 2px dashed rgba(255, 255, 255, 0.6); margin: 6px; border-radius: 12px; display: grid; place-items: end center; padding-bottom: 6px; font-size: 12px; color: rgba(255,255,255,0.8); }
+.scan .frame div.got { border-style: solid; border-color: #5fd08f; color: #5fd08f; }
+.scan .topbar {
+  position: relative; z-index: 2; display: flex; justify-content: space-between; align-items: center;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+}
+.scan .topbar .link { color: #fff; }
+.scan .panel {
+  position: relative; z-index: 2; margin-top: auto; background: rgba(20, 24, 23, 0.88);
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: grid; gap: 10px; text-align: center;
+}
+.scan .panel p { margin: 0; font-size: 14px; color: rgba(255,255,255,0.85); }
+.scan .panel .res { font-family: var(--font-mono); font-size: 13px; color: #5fd08f; }
+.scan .panel .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.scan .panel .btn { background: rgba(255,255,255,0.14); color: #fff; box-shadow: none; }
+.scan .panel .btn.primary { background: #38bfa9; color: #062320; }
+.scan .err { position: relative; z-index: 2; margin: 24px 16px; padding: 14px; border-radius: 12px; background: rgba(255,255,255,0.1); font-size: 14px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 50;
+  max-width: calc(100vw - 32px);
+}
+.settings-list { display: grid; gap: 10px; }
+.settings-list .btn { justify-content: flex-start; width: 100%; }
+.small-print { font-size: 13px; color: var(--muted); line-height: 1.6; }
+@media (prefers-reduced-motion: no-preference) {
+  .sheet { animation: rise 0.18s ease-out; }
+  @keyframes rise { from { transform: translateY(16px); opacity: 0.6; } }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="title-row">
+      <h1>發票記帳</h1>
+      <button class="icon-btn" id="btnSettings" aria-label="設定與備份">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+    </div>
+    <div class="summary">
+      <div class="month-nav">
+        <button id="prevMonth" aria-label="上個月">‹</button>
+        <span class="month" id="monthLabel"></span>
+        <button id="nextMonth" aria-label="下個月">›</button>
+      </div>
+      <span class="sum" id="monthSum"></span>
+      <span class="count" id="monthCount"></span>
+    </div>
+    <input class="search" id="search" type="search" placeholder="搜尋店家、品項、備註、發票號碼" autocomplete="off">
+  </header>
+  <main id="list"></main>
+</div>
+
+<div class="dock">
+  <div class="inner">
+    <button class="btn" id="btnManual" aria-label="手動新增">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>手動
+    </button>
+    <button class="btn primary" id="btnScan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="3" height="3"/><rect x="13" y="8" width="3" height="3"/><rect x="8" y="13" width="3" height="3"/><path d="M13 13h3v3"/></svg>
+      掃描發票
+    </button>
+  </div>
+</div>
+
+<!-- 掃描 -->
+<section class="sheet scan" id="scanSheet" hidden>
+  <video id="video" playsinline muted></video>
+  <div class="frame" aria-hidden="true"><div id="markL">左側 QR</div><div id="markR">右側 QR</div></div>
+  <div class="topbar">
+    <button class="link" id="scanCancel">取消</button>
+    <span>掃描發票</span>
+    <span style="width:2.5em"></span>
+  </div>
+  <div class="err" id="scanErr" hidden></div>
+  <div class="panel">
+    <p id="scanTip">把發票上的兩個 QR Code 放進框內，保持穩定</p>
+    <div class="res" id="scanRes" hidden></div>
+    <div class="btns">
+      <label class="btn" for="photoInput">用拍照辨識</label>
+      <button class="btn primary" id="scanUse" hidden>使用目前結果</button>
+    </div>
+    <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+  </div>
+  <canvas id="canvas" hidden></canvas>
+</section>
+
+<!-- 新增／編輯 -->
+<section class="sheet" id="formSheet" hidden>
+  <div class="sheet-bar wrap">
+    <button class="link l" id="formCancel">取消</button>
+    <h2 id="formTitle">確認發票</h2>
+    <button class="link r" id="formSave">儲存</button>
+  </div>
+  <form class="wrap" id="form" autocomplete="off">
+    <div class="group">
+      <h3>基本資訊</h3>
+      <div class="fields">
+        <div class="field"><label for="fNumber">發票號碼</label><input id="fNumber" class="mono" placeholder="AB12345678" autocapitalize="characters"></div>
+        <div class="field"><label for="fDate">消費日期</label><input id="fDate" type="date" required></div>
+        <div class="field"><label for="fTotal">金額</label><input id="fTotal" class="num" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+      </div>
+    </div>
+    <div class="group">
+      <h3>店家</h3>
+      <div class="fields">
+        <div class="field"><label for="fSeller">賣方統編</label><input id="fSeller" class="mono" inputmode="numeric" maxlength="8" placeholder="8 碼"></div>
+        <div class="field"><label for="fStore">店家名稱</label><input id="fStore" placeholder="例如：全家便利商店"></div>
+        <div class="field"><label for="fAddr">店家地址</label><input id="fAddr" placeholder="例如：台北市信義區…"></div>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="btn small" id="btnLookup">依統編查詢店家</button>
+        <a class="btn small" id="btnMap" target="_blank" rel="noopener" hidden>在地圖開啟</a>
+      </div>
+      <p class="hint">發票 QR Code 不含地址。查詢結果是經濟部商工登記的「公司登記地址」，不一定是門市地址，請自行修改。</p>
+    </div>
+    <div class="group">
+      <h3>品項</h3>
+      <div class="items-head"><span>品名</span><span>數量</span><span>單價</span><span></span></div>
+      <div class="fields" id="itemsBox"></div>
+      <div class="items-foot">
+        <button type="button" class="btn small" id="btnAddItem">＋ 新增品項</button>
+        <span id="itemsSum" class="num"></span>
+      </div>
+    </div>
+    <div class="group">
+      <h3>備註</h3>
+      <div class="fields">
+        <div class="field block"><textarea id="fNote" rows="3" placeholder="例如：公司報帳、和朋友聚餐…"></textarea></div>
+      </div>
+    </div>
+    <div class="group" id="deleteArea" hidden>
+      <button type="button" class="btn danger" id="btnDelete" style="width:100%">刪除這張發票</button>
+      <div class="confirm" id="deleteConfirm" hidden>
+        <span>確定刪除？刪除後無法復原。</span>
+        <div class="row-actions" style="margin:0">
+          <button type="button" class="btn small danger" id="btnDeleteYes">刪除</button>
+          <button type="button" class="btn small" id="btnDeleteNo">保留</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</section>
+
+<!-- 設定 -->
+<section class="sheet" id="settingsSheet" hidden>
+  <div class="sheet-bar wrap">
+    <span class="l"></span>
+    <h2>設定與備份</h2>
+    <button class="link r" id="settingsClose">完成</button>
+  </div>
+  <div class="wrap">
+    <div class="group">
+      <h3>備份</h3>
+      <div class="settings-list">
+        <button class="btn" id="btnExportJson">匯出備份檔（JSON）</button>
+        <label class="btn" for="importInput">從備份檔還原</label>
+        <input type="file" id="importInput" accept="application/json,.json" hidden>
+        <button class="btn" id="btnExportCsv">匯出成試算表（CSV）</button>
+      </div>
+    </div>
+    <div class="group">
+      <h3>關於資料</h3>
+      <p class="small-print" id="storageInfo"></p>
+      <p class="small-print">
+        資料只存在這支手機的瀏覽器裡，不會上傳。請用 Safari 的「分享 → 加入主畫面」安裝，
+        從主畫面圖示開啟比較不會被系統清除。建議每個月匯出一次備份檔存到「檔案」或 iCloud Drive。
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="jsQR.js"></script>
+<script src="einvoice.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const KEY = "invoices.v1";
+
+  // ---------- 資料 ----------
+  let invoices = load();
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { return []; }
+  }
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify(invoices)); }
+    catch (e) { toast("儲存失敗：手機空間不足或瀏覽器禁止儲存"); }
+  }
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const money = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("zh-TW");
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const weekday = ["日", "一", "二", "三", "四", "五", "六"];
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2600);
+  }
+
+  // ---------- 清單 ----------
+  let viewMonth = today().slice(0, 7);
+  function shiftMonth(delta) {
+    let [y, m] = viewMonth.split("-").map(Number);
+    m += delta; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+    viewMonth = `${y}-${String(m).padStart(2, "0")}`; render();
+  }
+  $("prevMonth").onclick = () => shiftMonth(-1);
+  $("nextMonth").onclick = () => shiftMonth(1);
+  $("search").oninput = render;
+
+  function render() {
+    const q = $("search").value.trim().toLowerCase();
+    const [y, m] = viewMonth.split("-");
+    $("monthLabel").textContent = `${y} 年 ${+m} 月`;
+
+    const inMonth = invoices.filter((i) => i.date.startsWith(viewMonth));
+    $("monthSum").textContent = money(inMonth.reduce((s, i) => s + (Number(i.total) || 0), 0));
+    $("monthCount").textContent = `共 ${inMonth.length} 張`;
+
+    // 搜尋時跨月份搜尋全部
+    const shown = (q ? invoices : inMonth).filter((i) => !q || [
+      i.storeName, i.note, i.number, i.storeAddress, ...(i.items || []).map((x) => x.name),
+    ].some((s) => String(s || "").toLowerCase().includes(q)));
+
+    const byDay = {};
+    for (const inv of shown) (byDay[inv.date] ||= []).push(inv);
+    const days = Object.keys(byDay).sort().reverse();
+
+    const list = $("list");
+    if (!days.length) {
+      list.innerHTML = q
+        ? `<div class="empty"><p>找不到「${esc(q)}」</p></div>`
+        : `<div class="empty">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+             <p>這個月還沒有發票<br>按下方「掃描發票」開始記錄</p>
+             <span class="tag">支援電子發票證明聯上的 QR Code</span>
+           </div>`;
+      return;
+    }
+    list.innerHTML = days.map((d) => {
+      const arr = byDay[d].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      const dt = new Date(d + "T00:00:00");
+      const sub = arr.reduce((s, i) => s + (Number(i.total) || 0), 0);
+      return `<section class="day">
+        <div class="day-head"><span>${dt.getMonth() + 1} 月 ${dt.getDate()} 日（${weekday[dt.getDay()]}）${q ? "・" + dt.getFullYear() : ""}</span><span>小計 <b>${money(sub)}</b></span></div>
+        <div class="card-list">${arr.map((i) => `
+          <button class="inv" data-id="${i.id}">
+            <span class="store">${esc(i.storeName || (i.sellerTaxID ? "統編 " + i.sellerTaxID : "未命名店家"))}</span>
+            <span class="amt">${money(i.total)}</span>
+            ${i.items && i.items.length ? `<span class="items">${esc(i.items.map((x) => x.name).join("、"))}</span>` : ""}
+            ${i.note ? `<span class="note">${esc(i.note)}</span>` : ""}
+          </button>`).join("")}
+        </div></section>`;
+    }).join("");
+  }
+  $("list").onclick = (e) => {
+    const b = e.target.closest(".inv"); if (!b) return;
+    const inv = invoices.find((i) => i.id === b.dataset.id);
+    if (inv) openForm(inv, false);
+  };
+
+  // ---------- 表單 ----------
+  let editing = null; // 正在編輯的現有發票（null = 新增）
+  let draftItems = [];
+  function openForm(data, isNew, fromScan) {
+    editing = isNew ? null : data;
+    $("formTitle").textContent = isNew ? (fromScan ? "確認發票" : "手動新增") : "發票內容";
+    $("fNumber").value = data.number || "";
+    $("fDate").value = data.date || today();
+    $("fTotal").value = data.total ?? "";
+    $("fSeller").value = data.sellerTaxID || "";
+    $("fStore").value = data.storeName || "";
+    $("fAddr").value = data.storeAddress || "";
+    $("fNote").value = data.note || "";
+    draftItems = (data.items || []).map((x) => ({ ...x }));
+    renderItems(); updateMap();
+    $("deleteArea").hidden = isNew; $("deleteConfirm").hidden = true; $("btnDelete").hidden = false;
+    $("formSheet").hidden = false; $("formSheet").scrollTop = 0;
+    if (fromScan && !data.storeName && data.sellerTaxID) lookupStore(true);
+  }
+  function closeForm() { $("formSheet").hidden = true; editing = null; }
+
+  function renderItems() {
+    const box = $("itemsBox");
+    if (!draftItems.length) {
+      box.innerHTML = `<div class="field"><span style="color:var(--muted);font-size:14px">沒有品項資料，可按「新增品項」手動加入</span></div>`;
+    } else {
+      box.innerHTML = draftItems.map((it, i) => `
+        <div class="item-row" data-i="${i}">
+          <input data-k="name" value="${esc(it.name)}" placeholder="品名" aria-label="品名">
+          <input data-k="qty" class="n" type="number" inputmode="decimal" value="${esc(it.qty)}" aria-label="數量">
+          <input data-k="price" class="n" type="number" inputmode="decimal" value="${esc(it.price)}" aria-label="單價">
+          <button type="button" class="x" aria-label="移除品項">×</button>
+        </div>`).join("");
+    }
+    updateItemsSum();
+  }
+  function updateItemsSum() {
+    const s = draftItems.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
+    $("itemsSum").textContent = draftItems.length ? `品項合計 ${money(s)}` : "";
+  }
+  $("itemsBox").oninput = (e) => {
+    const row = e.target.closest(".item-row"); if (!row) return;
+    const it = draftItems[+row.dataset.i], k = e.target.dataset.k;
+    it[k] = k === "name" ? e.target.value : Number(e.target.value);
+    updateItemsSum();
+  };
+  $("itemsBox").onclick = (e) => {
+    if (!e.target.classList.contains("x")) return;
+    draftItems.splice(+e.target.closest(".item-row").dataset.i, 1); renderItems();
+  };
+  $("btnAddItem").onclick = () => {
+    draftItems.push({ name: "", qty: 1, price: 0 }); renderItems();
+    const rows = $("itemsBox").querySelectorAll(".item-row");
+    rows[rows.length - 1]?.querySelector("input").focus();
+  };
+
+  function updateMap() {
+    const a = $("fAddr").value.trim() || $("fStore").value.trim();
+    $("btnMap").hidden = !a;
+    if (a) $("btnMap").href = "https://maps.apple.com/?q=" + encodeURIComponent(a);
+  }
+  $("fAddr").oninput = updateMap; $("fStore").oninput = updateMap;
+
+  async function lookupStore(silent) {
+    const id = $("fSeller").value.trim();
+    if (!/^\d{8}$/.test(id) || id === "00000000") { if (!silent) toast("請先輸入 8 碼統一編號"); return; }
+    const btn = $("btnLookup"); btn.disabled = true; btn.textContent = "查詢中…";
+    const apis = [
+      ["5F64D864-61CB-4D0D-8AD9-492047CC1EA6", `Business_Accounting_NO eq ${id}`, "Company_Name", "Company_Location"],
+      ["7E6AFA72-AD6A-46D3-8681-ED77951D912D", `President_No eq ${id}`, "Business_Name", "Business_Address"],
+    ];
+    let found = null, failed = false;
+    for (const [api, filter, nk, ak] of apis) {
+      try {
+        const url = `https://data.gcis.nat.gov.tw/od/data/api/${api}?$format=json&$filter=${encodeURIComponent(filter)}&$skip=0&$top=1`;
+        const r = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+        const text = await r.text();
+        if (!text.trim()) continue;
+        const arr = JSON.parse(text);
+        if (Array.isArray(arr) && arr[0] && (arr[0][nk] || arr[0][ak])) { found = { name: arr[0][nk] || "", addr: arr[0][ak] || "" }; break; }
+      } catch (e) { failed = true; }
+    }
+    btn.disabled = false; btn.textContent = "依統編查詢店家";
+    if (found) {
+      if (!$("fStore").value.trim()) $("fStore").value = found.name;
+      if (!$("fAddr").value.trim()) $("fAddr").value = found.addr;
+      updateMap();
+      if (!silent) toast("已帶入登記資料");
+    } else if (!silent) {
+      toast(failed ? "查詢服務連不上，請手動輸入" : "查無這個統編的登記資料");
+    }
+  }
+  $("btnLookup").onclick = () => lookupStore(false);
+
+  $("formCancel").onclick = closeForm;
+  $("form").onsubmit = (e) => { e.preventDefault(); save(); };
+  $("formSave").onclick = save;
+  function save() {
+    const number = $("fNumber").value.trim().toUpperCase();
+    const date = $("fDate").value;
+    if (!date) { toast("請填消費日期"); return; }
+    if (number && invoices.some((i) => i.number === number && i !== editing)) {
+      toast(`發票 ${number} 已經記錄過了`); return;
+    }
+    const data = {
+      number, date,
+      total: Number($("fTotal").value) || 0,
+      sellerTaxID: $("fSeller").value.trim(),
+      storeName: $("fStore").value.trim(),
+      storeAddress: $("fAddr").value.trim(),
+      note: $("fNote").value.trim(),
+      items: draftItems.filter((x) => String(x.name).trim()).map((x) => ({ name: String(x.name).trim(), qty: Number(x.qty) || 0, price: Number(x.price) || 0 })),
+    };
+    if (editing) Object.assign(editing, data, { updatedAt: Date.now() });
+    else invoices.push({ id: uid(), createdAt: Date.now(), ...data });
+    persist();
+    const msg = editing ? "已更新" : "已儲存";
+    viewMonth = date.slice(0, 7); $("search").value = "";
+    closeForm(); render(); toast(msg);
+  }
+  $("btnDelete").onclick = () => { $("deleteConfirm").hidden = false; $("btnDelete").hidden = true; };
+  $("btnDeleteNo").onclick = () => { $("deleteConfirm").hidden = true; $("btnDelete").hidden = false; };
+  $("btnDeleteYes").onclick = () => {
+    invoices = invoices.filter((i) => i !== editing); persist(); closeForm(); render(); toast("已刪除");
+  };
+  $("btnManual").onclick = () => openForm({ date: today() }, true, false);
+
+  // ---------- 掃描 ----------
+  let stream = null, timer = null, codeL = null, codeR = null, bytesL = null, bytesR = null, finished = false;
+  const canvas = $("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  function decodeText(code) {
+    return code ? code.data : null;
+  }
+  // 編碼參數為 0（Big5）時改用 Big5 重新解碼
+  function big5(bytes) {
+    try { return new TextDecoder("big5").decode(new Uint8Array(bytes)); } catch (e) { return null; }
+  }
+  function currentParse() {
+    if (!codeL) return null;
+    let L = codeL, R = codeR;
+    if (EInvoice.encodingOf(codeL) === "0") {
+      L = (bytesL && big5(bytesL)) || L;
+      R = R && ((bytesR && big5(bytesR)) || R);
+    }
+    return EInvoice.parse(L, R);
+  }
+
+  function accept(code) {
+    const s = decodeText(code); if (!s) return;
+    if (EInvoice.isLeft(s)) {
+      if (s !== codeL) { if (codeL) { codeR = null; bytesR = null; } codeL = s; bytesL = code.binaryData; }
+    } else if (EInvoice.isRight(s)) {
+      codeR = s; bytesR = code.binaryData;
+    }
+  }
+
+  function updateScanUI() {
+    $("markL").classList.toggle("got", !!codeL);
+    $("markR").classList.toggle("got", !!codeR);
+    const p = currentParse();
+    $("scanUse").hidden = !p; $("scanRes").hidden = !p;
+    if (p) {
+      $("scanRes").textContent = `${p.number}　${money(p.total)}　品項 ${p.items.length}/${p.declaredCount}`;
+      $("scanTip").textContent = codeR ? "已讀到兩個 QR Code" : "已讀到左側，請把右側 QR Code 也放進框內";
+      if ((p.declaredCount > 0 && p.items.length >= p.declaredCount) || (codeR && p.declaredCount === 0)) finish();
+    }
+  }
+
+  function scanRegion(sx, sy, sw, sh) {
+    const maxW = 900, scale = Math.min(1, maxW / sw);
+    const w = Math.round(sw * scale), h = Math.round(sh * scale);
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(scanSource, sx, sy, sw, sh, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    return jsQR(img.data, w, h, { inversionAttempts: "dontInvert" });
+  }
+  let scanSource = null;
+  function scanFrame(src, sw, sh) {
+    scanSource = src;
+    // 整張、左半、右半各試一次，才能抓到並排的兩個 QR
+    for (const [x, w] of [[0, sw], [0, sw / 2 + sw * 0.05], [sw / 2 - sw * 0.05, sw / 2 + sw * 0.05]]) {
+      const c = scanRegion(x, 0, w, sh);
+      if (c) accept(c);
+    }
+    updateScanUI();
+  }
+
+  async function openScanner() {
+    codeL = codeR = bytesL = bytesR = null; finished = false;
+    $("scanErr").hidden = true; $("scanTip").textContent = "把發票上的兩個 QR Code 放進框內，保持穩定";
+    $("scanSheet").hidden = false; updateScanUI();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
+      });
+      const v = $("video"); v.srcObject = stream; await v.play();
+      const tick = () => {
+        if (!stream || finished) return;
+        if (v.readyState >= 2 && v.videoWidth) {
+          // 只掃畫面中間（掃描框附近）的區域，速度較快
+          const vw = v.videoWidth, vh = v.videoHeight;
+          const cw = vw * 0.92, ch = Math.min(vh, cw * 0.7);
+          const sx = (vw - cw) / 2, sy = Math.max(0, vh * 0.42 - ch / 2);
+          scanSource = v;
+          for (const [x, w] of [[sx, cw], [sx, cw * 0.55], [sx + cw * 0.45, cw * 0.55]]) {
+            const c = scanRegion(x, sy, w, Math.min(ch, vh - sy));
+            if (c) accept(c);
+          }
+          updateScanUI();
+        }
+        timer = setTimeout(tick, 120);
+      };
+      tick();
+    } catch (e) {
+      $("scanErr").hidden = false;
+      $("scanErr").textContent = location.protocol !== "https:" && location.hostname !== "localhost"
+        ? "相機只能在 https 網址下使用。請用部署好的網址開啟。"
+        : "無法開啟相機。請到「設定 → Safari → 相機」改成「允許」，或改用下方「用拍照辨識」。";
+    }
+  }
+  function stopScanner() {
+    clearTimeout(timer); timer = null;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null; $("video").srcObject = null; $("scanSheet").hidden = true;
+  }
+  function finish() {
+    if (finished) return;
+    const p = currentParse(); if (!p) return;
+    finished = true;
+    if (navigator.vibrate) navigator.vibrate(30);
+    stopScanner();
+    const dup = invoices.find((i) => i.number === p.number);
+    if (dup) { toast(`發票 ${p.number} 已經記錄過了`); openForm(dup, false); return; }
+    openForm({ number: p.number, date: p.date, total: p.total, sellerTaxID: p.sellerTaxID, items: p.items }, true, true);
+  }
+  $("btnScan").onclick = openScanner;
+  $("scanCancel").onclick = stopScanner;
+  $("scanUse").onclick = finish;
+  $("photoInput").onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    try {
+      const bmp = await createImageBitmap(f);
+      scanFrame(bmp, bmp.width, bmp.height);
+      if (!codeL) toast("照片裡找不到發票 QR Code，請靠近一點、避免反光再拍一次");
+      else if (!finished && !codeR) toast("只讀到左側 QR Code，可直接按「使用目前結果」");
+    } catch (err) { toast("無法讀取照片"); }
+  };
+
+  // ---------- 設定與備份 ----------
+  $("btnSettings").onclick = async () => {
+    $("settingsSheet").hidden = false;
+    let info = `目前共 ${invoices.length} 張發票。`;
+    try {
+      if (navigator.storage?.persisted && await navigator.storage.persisted()) info += "瀏覽器已允許長期保存資料。";
+    } catch (e) {}
+    $("storageInfo").textContent = info;
+  };
+  $("settingsClose").onclick = () => ($("settingsSheet").hidden = true);
+
+  async function shareOrDownload(filename, text, type) {
+    const file = new File([text], filename, { type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: filename }); return; }
+      catch (e) { if (e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file); a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  const stamp = () => today().replace(/-/g, "");
+  $("btnExportJson").onclick = () =>
+    shareOrDownload(`發票備份-${stamp()}.json`, JSON.stringify({ app: "invoice-scanner", version: 1, invoices }, null, 2), "application/json");
+  $("btnExportCsv").onclick = () => {
+    const q = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const rows = [["日期", "發票號碼", "金額", "店家", "地址", "統編", "品項", "備註"].map(q).join(",")];
+    for (const i of [...invoices].sort((a, b) => a.date.localeCompare(b.date))) {
+      rows.push([i.date, i.number, i.total, i.storeName, i.storeAddress, i.sellerTaxID,
+        (i.items || []).map((x) => `${x.name}×${x.qty}@${x.price}`).join("；"), i.note].map(q).join(","));
+    }
+    shareOrDownload(`發票-${stamp()}.csv`, "﻿" + rows.join("\r\n"), "text/csv");
+  };
+  $("importInput").onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const list = Array.isArray(data) ? data : data.invoices;
+      if (!Array.isArray(list)) throw new Error();
+      let added = 0;
+      for (const inv of list) {
+        if (!inv || !inv.date) continue;
+        if (inv.number && invoices.some((i) => i.number === inv.number)) continue;
+        if (inv.id && invoices.some((i) => i.id === inv.id)) continue;
+        invoices.push({ id: inv.id || uid(), createdAt: inv.createdAt || Date.now(), ...inv });
+        added++;
+      }
+      persist(); render(); $("settingsSheet").hidden = true;
+      toast(`已還原 ${added} 張（重複的已略過）`);
+    } catch (err) { toast("這不是有效的備份檔"); }
+  };
+
+  render();
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
