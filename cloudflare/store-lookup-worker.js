@@ -29,6 +29,7 @@ export default {
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!/^\d{8}$/.test(id)) return json({ error: "統一編號必須是 8 碼數字" }, 400);
 
+    const errors = [];
     for (const api of APIS) {
       const url = `https://data.gcis.nat.gov.tw/od/data/api/${api.id}` +
         `?$format=json&$filter=${encodeURIComponent(`${api.field} eq ${id}`)}&$skip=0&$top=1`;
@@ -36,16 +37,36 @@ export default {
         // 同一個統編一天內只查一次經濟部
         const r = await fetch(url, { cf: { cacheTtl: 86400, cacheEverything: true } });
         const text = await r.text();
+        if (!r.ok) { errors.push(`gcis ${r.status}`); continue; }
         if (!text.trim()) continue;
         const arr = JSON.parse(text);
         const row = Array.isArray(arr) ? arr[0] : null;
         if (row && (row[api.name] || row[api.addr])) {
-          return json({ name: row[api.name] || "", address: row[api.addr] || "" });
+          return json({ name: row[api.name] || "", address: row[api.addr] || "", source: "gcis" });
         }
       } catch (e) {
-        // 換下一個資料集
+        errors.push(`gcis ${e.message}`);
       }
     }
+
+    // 備用：g0v 公司／商業登記資料
+    try {
+      const r = await fetch(`https://company.g0v.ronny.tw/api/show/${id}`, { cf: { cacheTtl: 86400, cacheEverything: true } });
+      if (r.ok) {
+        const d = (await r.json()).data || {};
+        const pick = (...keys) => { for (const k of keys) if (typeof d[k] === "string" && d[k]) return d[k]; return ""; };
+        const name = pick("公司名稱", "商業名稱", "名稱");
+        const address = pick("公司所在地", "地址", "商業所在地");
+        if (name || address) return json({ name, address, source: "g0v" });
+      } else {
+        errors.push(`g0v ${r.status}`);
+      }
+    } catch (e) {
+      errors.push(`g0v ${e.message}`);
+    }
+
+    // 有來源連線失敗時回 502，讓網頁顯示「查詢失敗」而不是「查無資料」
+    if (errors.length) return json({ name: "", address: "", errors }, 502);
     return json({ name: "", address: "" }, 404);
   },
 };

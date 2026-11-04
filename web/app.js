@@ -295,6 +295,7 @@
         if (r.status === 404) { btn.disabled = false; btn.textContent = "依統編查詢店家"; if (!silent) toast("查無這個統編的登記資料"); return; }
         const d = await r.json();
         if (d.name || d.address) found = { name: d.name || "", addr: d.address || "" };
+        else if (r.status === 502) { btn.disabled = false; btn.textContent = "依統編查詢店家"; if (!silent) toast("查詢服務暫時連不上，請稍後再試或手動輸入"); return; }
       } catch (e) { failed = true; }
     }
     for (const [api, filter, nk, ak] of found ? [] : apis) {
